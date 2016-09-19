@@ -27,7 +27,7 @@ Show the prediction classes and formats.
 table(training$classe)
 ```
 
-```{r stats2, echo=TRUE, message=FALSE}
+```{r stats2, echo=TRUE,  results="hide"}
 str(training)
 ```
 
