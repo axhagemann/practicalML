@@ -1,0 +1,132 @@
+---
+title: "PracticalML week 4"
+author: "Alex"
+date: "19 September 2016"
+output: html_document
+---
+
+## Intro
+
+Data has been generously provided by http://groupware.les.inf.puc-rio.br/har. It is a collection of classified movement data collected using various sensors. Based on the sensor information, the task is to classify a movement. 
+
+## Data Loading
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Check data offline in editor. NA, "" and #DIV/0! should be read as NA since there is no information behind these strings. Read the training and testing sets into R.
+
+```{r read, echo=TRUE}
+training <- read.table(file="pml-training.csv", sep=",", header=TRUE , na.strings=c("NA", "#DIV/0!", "") )
+testing <- read.table(file="pml-testing.csv", sep=",", header=TRUE , na.strings=c("NA", "#DIV/0!", "") )
+```
+
+Show the prediction classes and formats.
+```{r stats, echo=TRUE}
+table(training$classe)
+```
+
+```{r stats2, echo=TRUE, message=FALSE}
+str(training)
+```
+
+The first column appears to be an ID. Further meta data appears to be in the columns user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp and new_window. These appear to be irrelevant for the actual prediction and will be therefore be removed. Additionally, check for columns that contain NULL values. These will be removed since random forest cannot handle NULL values. An alternative would have been to impute them, however, the results in the end show that removing them works fine.
+
+```{r cols, echo=TRUE}
+
+training2 <- training[, 7:160] # remove first 6 columns
+testing2 <- testing[, 7:160] # remove first 6 columns
+dim(training2) # 19622   154
+dim(testing2) # 20 154
+nullCols <- apply(!is.na(training2), 2, sum) > (nrow(training2) - 1) # check for columns that are null
+length(nullCols[nullCols == FALSE])  #ok, 100 columns are excluded that are entirely NULL
+training3 <- training2[ ,nullCols] # remove the columns that are entirely NULL
+testing3 <- testing2[ ,nullCols]
+dim(training3) # 19622   54
+dim(testing3) # 20 54
+
+```
+By removing columns that contain NULL values the remaining number of columns is 54.
+
+For evaluation purposes split the dataset into test and training, otherwise the built model would be tested on itself. Use a 3/4 split for this, as in the previous quizzes and use the createDataPartition function from the caret package.
+
+```{r packagecaret, echo=TRUE, message=FALSE}
+library(caret)
+```
+
+```{r xx, echo=TRUE}
+set.seed(1234) # set seed
+inTrain <- createDataPartition(training3$classe, p = 3/4)[[1]] # create index for test/training set
+trainingTrain <- training3[ inTrain, ]
+trainingTest <- training3[ -inTrain, ]
+dim(trainingTrain) # 14718   54
+dim(trainingTest) # 4904  54
+```
+
+
+## Build Model
+
+The model will be built in this section. Using nearZeroVar function from caret, columns will be identified that can be excluded since they add nearly no additional information. 
+
+Afterwards, the model will be built using 10-fold cross validation.
+
+First check for columns that are very similar / add nearly no additional information
+
+```{r nearZeroVar, echo=TRUE}
+nearZeroVarCols <- nearZeroVar(trainingTrain)
+length(nearZeroVarCols) # 0
+```
+Ok, 0 columns have been identified. Therefore, it is not necessary to remove additional columns.
+
+First build a random forest, check the variable importance and get the accuracy without using 10-fold cross validation. The random forest classifier is used since it outputs easily readable decision trees and experience has shown that it often works well.
+
+```{r packagerf, echo=TRUE, message=FALSE}
+library(randomForest)
+```
+
+```{r rfFS, echo=TRUE}
+rfFS <- randomForest(classe ~ ., data=trainingTrain,  importance = TRUE, ntree = 100) 
+varImpPlot(rfFS) # plot importance
+predFS <- predict(rfFS, trainingTest)  # test prediction
+confusionMatrix(predFS, trainingTest$classe)$overall[1] # 0.9973491 
+rfFS
+```
+
+The top 5 features for the random forest are num_window, roll_belt, yaw_belt, pitch_forearm and pitch_belt.
+
+The accuracy of 0.997 already appears to be very promising. In order to rule out over fitting, a 10-fold cross validation is used for training. Cross validation ensures that the training set is split into parts and the individual parts are used for the training. Note that cross validation requires more computing power and therefore the operation runs for ca. 20 minutes. Therefore, the code to compute the model is commented out and the result is stored in a RDS file.
+
+```{r model, echo=TRUE}
+train_Control <- trainControl(method="cv", number=10) # initialize cross validation
+# train the model using trainingTrain
+#rf <- train(classe ~ ., data=trainingTrain, trControl= train_Control, method="rf", allowParallel = TRUE) 
+#saveRDS(rf,"rf_model.RDS")
+# use the created model to predict the classe of trainingTest
+rf <- readRDS("rf_model.RDS") # load stored model
+pred <- predict(rf, trainingTest) 
+confusionMatrix(pred, trainingTest$classe)$overall[1] # 0.9993883 
+```
+
+With an accuracy of 99.9% the model is very good. The question of possible over fitting remains with such a high accuracy, however the model was learned on one part of the data set and tested on the other. Therefore, it is likely that the model is indeed performing well.
+
+## Out of Sample Error
+
+The out of sample error is the error rate of the prediction for a new data set. In this case the trainingTest set. Due to the high accuracy it is expected that the out of sample error will be extremely low. Verify this by calculating how many rows were classified correctly out of all.
+
+```{r oos1, echo=TRUE}
+oos <- sum(pred != trainingTest$classe) / nrow(trainingTest)
+oos
+```
+
+The out of sample error is 0.00061 or 0.061%. This means that only 3 rows out of the 4904 of trainingTest were not predicted correctly. This confirms the high quality of the model.
+
+## Predict Test Cases
+
+As part of the it was also the task to classify 20 cases from pml-testing.csv. These 20 cases have been transformed in this script and the built model is used to predict the classe.
+
+```{r predict, echo=TRUE, message=FALSE}
+pred20 <- predict(rf, testing3)
+```
+
+These results will be entered manually into the week 4 quiz.
